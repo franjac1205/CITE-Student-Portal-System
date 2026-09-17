@@ -1,0 +1,6 @@
+Student Information System Supabase:
+
+Project Key: https://veddlhjkuzashxwkpeuu.supabase.co
+Anon Public: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZlZGRsaGprdXphc2h4d2twZXV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ0OTc1MjQsImV4cCI6MjEwMDA3MzUyNH0.eEbonWfTlLm3CF7MmhoQUHgBp2aFLjv3LlqfztNJqz8
+
+SCHEMA:

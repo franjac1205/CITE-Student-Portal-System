@@ -1,0 +1,32 @@
+create table public.annual_fees (
+  id uuid not null default extensions.gen_random_uuid (),
+  student_id uuid not null,
+  school_year text not null,
+  amount numeric(8, 2) not null default 100.00,
+  status text not null default 'unpaid'::text,
+  date_paid timestamp with time zone null,
+  or_number text null,
+  recorded_by uuid null,
+  created_at timestamp with time zone not null default now(),
+  amount_paid numeric(8, 2) not null default 0.00,
+  academic_year_id uuid null,
+  semester text null,
+  constraint annual_fees_pkey primary key (id),
+  constraint annual_fees_status_check check (
+    (
+      status = any (array['unpaid'::text, 'paid'::text])
+    )
+  )
+) TABLESPACE pg_default;
+
+create index IF not exists idx_annual_fees_student on public.annual_fees using btree (student_id) TABLESPACE pg_default;
+
+create index IF not exists idx_annual_fees_school_year on public.annual_fees using btree (school_year) TABLESPACE pg_default;
+
+create index IF not exists idx_annual_fees_status on public.annual_fees using btree (status) TABLESPACE pg_default;
+
+create index IF not exists idx_annual_fees_academic_year on public.annual_fees using btree (academic_year_id) TABLESPACE pg_default;
+
+create unique INDEX IF not exists uq_annual_fees_student_period on public.annual_fees using btree (student_id, academic_year_id) TABLESPACE pg_default
+where
+  (academic_year_id is not null);

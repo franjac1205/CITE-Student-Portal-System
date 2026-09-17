@@ -1,0 +1,25 @@
+create table public.categories (
+  id uuid not null default extensions.gen_random_uuid (),
+  name text not null,
+  description text null,
+  status text not null default 'active'::text,
+  assign_to_all boolean not null default false,
+  archived_at timestamp with time zone null,
+  archived_by uuid null,
+  deleted_at timestamp with time zone null,
+  deleted_by uuid null,
+  deleted_approved_by uuid null,
+  created_at timestamp with time zone not null default now(),
+  constraint categories_pkey primary key (id),
+  constraint categories_status_check check (
+    (
+      status = any (
+        array['active'::text, 'archived'::text, 'deleted'::text]
+      )
+    )
+  )
+) TABLESPACE pg_default;
+
+create index IF not exists idx_categories_status on public.categories using btree (status) TABLESPACE pg_default;
+
+create index IF not exists idx_categories_name on public.categories using btree (name) TABLESPACE pg_default;

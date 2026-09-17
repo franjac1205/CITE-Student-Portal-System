@@ -1,0 +1,14 @@
+create table public.role_permissions (
+  id uuid not null default extensions.uuid_generate_v4 (),
+  role_id uuid not null,
+  permission_id uuid not null,
+  created_at timestamp with time zone not null default timezone ('utc'::text, now()),
+  constraint role_permissions_pkey primary key (id),
+  constraint unique_role_permission unique (role_id, permission_id),
+  constraint role_permissions_permission_id_fkey foreign KEY (permission_id) references permissions (id) on delete CASCADE,
+  constraint role_permissions_role_id_fkey foreign KEY (role_id) references roles (id) on delete CASCADE
+) TABLESPACE pg_default;
+
+create index IF not exists idx_role_permissions_role_id on public.role_permissions using btree (role_id) TABLESPACE pg_default;
+
+create index IF not exists idx_role_permissions_permission_id on public.role_permissions using btree (permission_id) TABLESPACE pg_default;

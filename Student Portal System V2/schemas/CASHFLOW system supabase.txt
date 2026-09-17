@@ -1,0 +1,242 @@
+CASHFLOW system supabase
+
+Project URL: https://jodrbtjtawzltmoqzplo.supabase.co
+Anon Public: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpvZHJidGp0YXd6bHRtb3F6cGxvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3MDU2MzcsImV4cCI6MjEwMDI4MTYzN30.en9XVD8XAYMgXJkxE6v-CmNMwvTaxhKkWSTaqt98KTc
+
+SCHEMA:
+--- ============================================================
+-- Department Cashflow System (Student Officer Fund Management)
+-- Postgres / Supabase version
+-- ------------------------------------------------------------
+-- USERS (student officers, treasurer, adviser/admin)
+-- ------------------------------------------------------------
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    student_id VARCHAR(30) DEFAULT NULL,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL,
+    full_name VARCHAR(150) NOT NULL,
+    role VARCHAR(20) NOT NULL DEFAULT 'officer' CHECK (role IN ('adviser','treasurer','officer')),
+    position VARCHAR(100) DEFAULT NULL,      -- e.g. President, Treasurer, Auditor
+    status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ------------------------------------------------------------
+-- FUND CATEGORIES (General, Outreach, Spiritual, etc.)
+-- ------------------------------------------------------------
+CREATE TABLE categories (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    description VARCHAR(255) DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ------------------------------------------------------------
+-- BUDGET ALLOCATIONS per category, per school year/semester
+-- ------------------------------------------------------------
+CREATE TABLE budgets (
+    id SERIAL PRIMARY KEY,
+    category_id INT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+    school_year VARCHAR(20) NOT NULL,        -- e.g. 2025-2026
+    semester VARCHAR(10) NOT NULL DEFAULT '1st' CHECK (semester IN ('1st','2nd','Summer')),
+    allocated_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+    remarks VARCHAR(255) DEFAULT NULL,
+    created_by INT NOT NULL REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ------------------------------------------------------------
+-- BUDGET REQUESTS (officer requests funds for an activity)
+-- ------------------------------------------------------------
+CREATE TABLE budget_requests (
+    id SERIAL PRIMARY KEY,
+    category_id INT NOT NULL REFERENCES categories(id),
+    activity_name VARCHAR(150) NOT NULL,
+    purpose TEXT,
+    amount_requested DECIMAL(12,2) NOT NULL,
+    activity_date DATE DEFAULT NULL,
+    requested_by INT NOT NULL REFERENCES users(id),
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','liquidated')),
+    approved_by INT DEFAULT NULL REFERENCES users(id),
+    date_requested TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    date_approved TIMESTAMP DEFAULT NULL,
+    remarks VARCHAR(255) DEFAULT NULL
+);
+
+-- ------------------------------------------------------------
+-- TRANSACTIONS (actual inflow / outflow ledger)
+-- ------------------------------------------------------------
+CREATE TABLE transactions (
+    id SERIAL PRIMARY KEY,
+    category_id INT NOT NULL REFERENCES categories(id),
+    budget_request_id INT DEFAULT NULL REFERENCES budget_requests(id),
+    type VARCHAR(10) NOT NULL CHECK (type IN ('income','expense')),
+    amount DECIMAL(12,2) NOT NULL,
+    description VARCHAR(255) NOT NULL,
+    reference_no VARCHAR(50) DEFAULT NULL,
+    transaction_date DATE NOT NULL,
+    recorded_by INT NOT NULL REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ------------------------------------------------------------
+-- LIQUIDATIONS (post-activity reporting of actual expenses)
+-- ------------------------------------------------------------
+CREATE TABLE liquidations (
+    id SERIAL PRIMARY KEY,
+    budget_request_id INT NOT NULL REFERENCES budget_requests(id),
+    actual_amount_spent DECIMAL(12,2) NOT NULL,
+    proof_filename VARCHAR(255) DEFAULT NULL, -- uploaded receipt/photo
+    remarks TEXT,
+    submitted_by INT NOT NULL REFERENCES users(id),
+    date_submitted TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','reviewed')),
+    reviewed_by INT DEFAULT NULL REFERENCES users(id),
+    date_reviewed TIMESTAMP DEFAULT NULL
+);
+
+-- ------------------------------------------------------------
+-- AUDIT LOGS (accountability trail)
+-- ------------------------------------------------------------
+CREATE TABLE audit_logs (
+    id SERIAL PRIMARY KEY,
+    user_id INT DEFAULT NULL REFERENCES users(id),
+    action VARCHAR(100) NOT NULL,
+    details VARCHAR(255) DEFAULT NULL,
+    ip_address VARCHAR(45) DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+CREATE TABLE students (
+    id SERIAL PRIMARY KEY,
+    ebams_student_id INT NOT NULL UNIQUE,     -- EBAMS students.id, used to upsert on re-sync
+    student_no VARCHAR(15) NOT NULL UNIQUE,   -- EBAMS students.student_id
+    full_name VARCHAR(150) NOT NULL,          -- EBAMS students.student_name
+    course VARCHAR(10) NOT NULL CHECK (course IN ('BSIT','BSCPE')),  -- EBAMS students.program
+    year_level SMALLINT NOT NULL,             -- EBAMS students.year_level (1-4)
+    section VARCHAR(10) DEFAULT NULL,         -- not in EBAMS; set manually here, e.g. A, B, C
+    academic_year VARCHAR(20) DEFAULT NULL,   -- EBAMS students.academic_year
+    status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')), -- derived from EBAMS archived flag
+    synced_at TIMESTAMP DEFAULT NULL,         -- last time this row was refreshed from EBAMS
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+CREATE TABLE violations (
+    id SERIAL PRIMARY KEY,
+    ebams_attendance_id INT NOT NULL UNIQUE,  -- EBAMS attendance.attendance_id, used to upsert on re-sync
+    ebams_event_id INT NOT NULL,              -- EBAMS attendance.event_id
+    event_name VARCHAR(150) NOT NULL,         -- EBAMS events.event_name (denormalized)
+    event_date DATE NOT NULL,                 -- EBAMS events.event_date (denormalized)
+    student_id INT NOT NULL REFERENCES students(id),
+
+    status VARCHAR(30) NOT NULL CHECK (status IN ('Late','Left Early','Late and Left Early','Absent')),
+    is_excused BOOLEAN NOT NULL DEFAULT FALSE,
+    excused_reason VARCHAR(255) DEFAULT NULL,
+
+    -- fine side (settled independently of community service)
+    fine_amount DECIMAL(10,2) NOT NULL DEFAULT 0,        -- EBAMS calculated_fine, snapshot at sync
+    fine_paid_amount DECIMAL(10,2) NOT NULL DEFAULT 0,   -- running total paid; supports partial payment
+    fine_status VARCHAR(20) NOT NULL DEFAULT 'unpaid' CHECK (fine_status IN ('unpaid','partial','paid','waived')),
+    fine_date_settled TIMESTAMP DEFAULT NULL,
+    fine_settled_by INT DEFAULT NULL REFERENCES users(id),
+
+    -- community service side (settled independently of the fine)
+    service_hours_required DECIMAL(4,1) NOT NULL DEFAULT 0,  -- EBAMS calculated_cs_hours, snapshot at sync
+    service_hours_rendered DECIMAL(4,1) NOT NULL DEFAULT 0,  -- running total rendered; supports partial credit
+    service_status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (service_status IN ('pending','partial','served','waived')),
+    service_date_settled TIMESTAMP DEFAULT NULL,
+    service_settled_by INT DEFAULT NULL REFERENCES users(id),
+
+    source VARCHAR(20) NOT NULL DEFAULT 'attendance' CHECK (source IN ('attendance','event','other')),
+    recorded_by INT DEFAULT NULL REFERENCES users(id), -- null when synced from EBAMS
+    remarks VARCHAR(255) DEFAULT NULL,
+    synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP        -- last time this row was refreshed from EBAMS
+);
+
+CREATE INDEX idx_violations_student ON violations(student_id);
+CREATE INDEX idx_violations_fine_status ON violations(fine_status);
+CREATE INDEX idx_violations_service_status ON violations(service_status);
+
+-- ------------------------------------------------------------
+-- WEEKLY DUES (₱10/week, remitted per course-year-section by
+-- the class representative, not tracked per individual student)
+-- ------------------------------------------------------------
+CREATE TABLE weekly_dues (
+    id SERIAL PRIMARY KEY,
+    course VARCHAR(10) NOT NULL CHECK (course IN ('BSIT','BSCPE')),
+    year_level SMALLINT NOT NULL,
+    section VARCHAR(10) NOT NULL,
+    week_start DATE NOT NULL,
+    week_end DATE NOT NULL,
+    total_students INT NOT NULL DEFAULT 0,
+    amount_per_student DECIMAL(6,2) NOT NULL DEFAULT 10.00,
+    amount_expected DECIMAL(10,2) NOT NULL DEFAULT 0,
+    amount_collected DECIMAL(10,2) NOT NULL DEFAULT 0,
+    representative_name VARCHAR(150) NOT NULL,
+    date_remitted TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    recorded_by INT NOT NULL REFERENCES users(id),
+    remarks VARCHAR(255) DEFAULT NULL
+);
+
+-- ------------------------------------------------------------
+-- ANNUAL DEPARTMENTAL FEE (₱100/year, per individual student,
+-- separate and distinct from the weekly ₱10 collection)
+-- ------------------------------------------------------------
+CREATE TABLE annual_fees (
+    id SERIAL PRIMARY KEY,
+    student_id INT NOT NULL REFERENCES students(id),
+    school_year VARCHAR(20) NOT NULL,          -- e.g. 2025-2026
+    amount DECIMAL(8,2) NOT NULL DEFAULT 100.00,
+    status VARCHAR(20) NOT NULL DEFAULT 'unpaid' CHECK (status IN ('unpaid','paid')),
+    date_paid TIMESTAMP DEFAULT NULL,
+    or_number VARCHAR(50) DEFAULT NULL,
+    recorded_by INT DEFAULT NULL REFERENCES users(id),
+    CONSTRAINT uniq_student_year UNIQUE (student_id, school_year)
+);
+
+-- ------------------------------------------------------------
+-- SEED DATA
+-- ------------------------------------------------------------
+
+-- Default users (password for all = "password123", hashed with bcrypt)
+-- Hash below is verified to correspond to "password123"
+INSERT INTO users (student_id, username, password, full_name, role, position) VALUES
+('ADV-001', 'adviser', '$2b$10$/FF4zbUqYeT6nl3CjNsn2OVhFg8PAj72TyO5u5gw6svS8WgdZLhnu', 'Dr. Franklin Soriano', 'adviser', 'Department Adviser'),
+('2023-0001', 'treasurer', '$2b$10$/FF4zbUqYeT6nl3CjNsn2OVhFg8PAj72TyO5u5gw6svS8WgdZLhnu', 'Juan Dela Cruz', 'treasurer', 'Treasurer'),
+('2023-0002', 'officer', '$2b$10$/FF4zbUqYeT6nl3CjNsn2OVhFg8PAj72TyO5u5gw6svS8WgdZLhnu', 'Maria Santos', 'officer', 'President');
+
+-- Default categories
+INSERT INTO categories (name, description) VALUES
+('General Fund', 'General department/organization operating fund'),
+('Outreach Program', 'Community extension, donation drives, relief operations'),
+('Spiritual Activities', 'Recollections, masses, retreats, faith-based events'),
+('Events & Activities', 'General assemblies, intramurals, seminars, workshops'),
+('Student Contributions', 'Weekly dues, annual departmental fee, and fine payments');
+
+
+INSERT INTO students (ebams_student_id, student_no, full_name, course, year_level, section, academic_year, status) VALUES
+(1, '231-08-0021', 'Dela Cruz, Katrine V.', 'BSIT', 3, 'A', '2025-2026', 'active'),
+(4, '231-08-0024', 'Angel Dizon', 'BSIT', 1, 'A', '2025-2026', 'active'),
+(5, '231-08-0025', 'Cristine Bautista', 'BSCPE', 3, 'B', '2025-2026', 'active'),
+(6, '231-08-0026', 'John Michael Ramos', 'BSCPE', 3, 'B', '2025-2026', 'active'),
+(7, '231-08-0027', 'Mark Villanueva', 'BSIT', 2, 'A', '2025-2026', 'active');
+
+
+INSERT INTO violations (ebams_attendance_id, ebams_event_id, event_name, event_date, student_id, status, fine_amount, service_hours_required, source, recorded_by) VALUES
+(135, 11, 'Sportsfest', '2025-11-21', 1, 'Absent', 500.00, 24.0, 'attendance', NULL),
+(136, 11, 'Sportsfest', '2025-11-21', 2, 'Absent', 500.00, 24.0, 'attendance', NULL),
+(137, 11, 'Sportsfest', '2025-11-21', 3, 'Absent', 500.00, 24.0, 'attendance', NULL);
+
+
+UPDATE violations SET fine_paid_amount = 500.00, fine_status = 'paid', fine_date_settled = NOW(),
+    service_hours_rendered = 24.0, service_status = 'served', service_date_settled = NOW()
+    WHERE ebams_attendance_id = 135;
+
+-- Sample budget allocation
+INSERT INTO budgets (category_id, school_year, semester, allocated_amount, remarks, created_by) VALUES
+(1, '2025-2026', '1st', 10000.00, 'Initial allocation from department', 1),
+(2, '2025-2026', '1st', 8000.00, 'Outreach program budget', 1),
+(3, '2025-2026', '1st', 5000.00, 'Spiritual activities budget', 1);

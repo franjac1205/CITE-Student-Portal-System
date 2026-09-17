@@ -1,0 +1,65 @@
+create table public.excuse_requests (
+  id uuid not null default extensions.gen_random_uuid (),
+  attendance_id uuid not null,
+  requested_by uuid not null,
+  reviewed_by uuid null,
+  status text not null default 'pending'::text,
+  approval_action text not null default 'excused'::text,
+  reason text null,
+  decision_notes text null,
+  supporting_document text null,
+  excuse_letter text null,
+  created_at timestamp with time zone not null default now(),
+  decided_at timestamp with time zone null,
+  student_name text null,
+  excuse_letter_data bytea null,
+  excuse_letter_mime character varying(100) null,
+  excuse_letter_name text null,
+  supporting_document_data bytea null,
+  supporting_document_mime character varying(100) null,
+  supporting_document_name text null,
+  constraint excuse_requests_pkey primary key (id),
+  constraint excuse_requests_approval_action_check check (
+    (
+      approval_action = any (array['excused'::text, 'violation'::text])
+    )
+  ),
+  constraint excuse_requests_status_check check (
+    (
+      status = any (
+        array['pending'::text, 'approved'::text, 'denied'::text]
+      )
+    )
+  )
+) TABLESPACE pg_default;
+
+create index IF not exists idx_excuse_requests_attendance on public.excuse_requests using btree (attendance_id) TABLESPACE pg_default;
+
+create index IF not exists idx_excuse_requests_status on public.excuse_requests using btree (status) TABLESPACE pg_default
+where
+  (status = 'pending'::text);
+
+create index IF not exists idx_excuse_requests_student_name on public.excuse_requests using btree (student_name) TABLESPACE pg_default;
+
+create trigger audit_ebams_excuse_requests
+after INSERT
+or DELETE
+or
+update on excuse_requests for EACH row
+execute FUNCTION audit_ebams_system_activity ('excuse_request');
+
+-- Store uploaded files in Supabase Storage and keep their object paths and
+-- metadata in the existing excuse request columns.
+insert into storage.buckets (id, name, public)
+values ('excuse-request-files', 'excuse-request-files', true)
+on conflict (id) do nothing;
+
+create policy "Allow excuse request file uploads"
+on storage.objects for insert
+to anon, authenticated
+with check (bucket_id = 'excuse-request-files');
+
+create policy "Allow excuse request file reads"
+on storage.objects for select
+to anon, authenticated
+using (bucket_id = 'excuse-request-files');

@@ -1,0 +1,62 @@
+create table public.fines (
+  id uuid not null default extensions.uuid_generate_v4 (),
+  student_id uuid not null,
+  academic_year_id uuid not null,
+  reason character varying(100) not null,
+  related_event text null,
+  amount numeric(10, 2) not null,
+  status character varying(50) not null default 'Unpaid'::character varying,
+  date_incurred date not null,
+  attendance_id uuid null,
+  notes text null,
+  recorded_by uuid not null,
+  paid_at timestamp with time zone null,
+  paid_by uuid null,
+  waived_at timestamp with time zone null,
+  waived_by uuid null,
+  waiver_reason text null,
+  created_at timestamp with time zone not null default timezone ('utc'::text, now()),
+  updated_at timestamp with time zone not null default timezone ('utc'::text, now()),
+  deleted_at timestamp with time zone null,
+  constraint fines_pkey primary key (id),
+  constraint fines_reason_check check (
+    (
+      (reason)::text = any (
+        (
+          array[
+            'Absent'::character varying,
+            'Late'::character varying,
+            'Event Violation'::character varying
+          ]
+        )::text[]
+      )
+    )
+  ),
+  constraint fines_status_check check (
+    (
+      (status)::text = any (
+        (
+          array[
+            'Unpaid'::character varying,
+            'Paid'::character varying,
+            'Waived'::character varying
+          ]
+        )::text[]
+      )
+    )
+  )
+) TABLESPACE pg_default;
+
+create index IF not exists idx_fines_date_incurred on public.fines using btree (date_incurred) TABLESPACE pg_default;
+
+create index IF not exists idx_fines_recorded_by on public.fines using btree (recorded_by) TABLESPACE pg_default;
+
+create index IF not exists idx_fines_deleted_at on public.fines using btree (deleted_at) TABLESPACE pg_default;
+
+create index IF not exists idx_fines_student_id on public.fines using btree (student_id) TABLESPACE pg_default;
+
+create index IF not exists idx_fines_academic_year_id on public.fines using btree (academic_year_id) TABLESPACE pg_default;
+
+create index IF not exists idx_fines_status on public.fines using btree (status) TABLESPACE pg_default;
+
+create index IF not exists idx_fines_reason on public.fines using btree (reason) TABLESPACE pg_default;

@@ -1,0 +1,15 @@
+create table public.student_payments (
+  id uuid not null default extensions.gen_random_uuid (),
+  student_id uuid not null,
+  category_id uuid not null,
+  transaction_id uuid not null,
+  amount numeric not null,
+  payment_date date not null,
+  remarks text null,
+  recorded_by uuid not null,
+  created_at timestamp with time zone not null default now(),
+  constraint student_payments_pkey primary key (id),
+  constraint student_payments_category_id_fkey foreign KEY (category_id) references fund_categories (id),
+  constraint student_payments_student_id_fkey foreign KEY (student_id) references students (id),
+  constraint student_payments_transaction_id_fkey foreign KEY (transaction_id) references transactions (id)
+) TABLESPACE pg_default;    

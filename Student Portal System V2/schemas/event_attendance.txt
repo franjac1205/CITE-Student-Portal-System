@@ -1,0 +1,56 @@
+create table public.event_attendance (
+  id uuid not null default extensions.gen_random_uuid (),
+  event_id uuid not null,
+  student_id uuid not null,
+  time_in timestamp with time zone null,
+  time_out timestamp with time zone null,
+  status text not null default 'Absent'::text,
+  calculated_fine numeric(10, 2) not null default 0,
+  calculated_cs_hours numeric(6, 2) not null default 0,
+  is_excused boolean not null default false,
+  excuse_reason text null,
+  created_at timestamp with time zone not null default now(),
+  updated_at timestamp with time zone not null default now(),
+  constraint event_attendance_pkey primary key (id),
+  constraint event_attendance_unique_event_student unique (event_id, student_id),
+  constraint event_attendance_event_id_fkey foreign KEY (event_id) references events (id) on delete CASCADE,
+  constraint event_attendance_student_id_fkey foreign KEY (student_id) references students (id) on delete RESTRICT,
+  constraint event_attendance_status_check check (
+    (
+      status = any (
+        array[
+          'Present'::text,
+          'Late'::text,
+          'Left Early'::text,
+          'Late and Left Early'::text,
+          'Absent'::text,
+          'Excused'::text
+        ]
+      )
+    )
+  )
+) TABLESPACE pg_default;
+
+create index IF not exists idx_event_attendance_event_recent on public.event_attendance using btree (event_id, updated_at desc) INCLUDE (student_id, status, time_in, time_out, is_excused) TABLESPACE pg_default;
+
+create index IF not exists idx_event_attendance_event_activity on public.event_attendance using btree (
+  event_id,
+  COALESCE(time_out, time_in, updated_at) desc
+) INCLUDE (
+  student_id,
+  status,
+  is_excused,
+  calculated_fine,
+  calculated_cs_hours
+) TABLESPACE pg_default;
+
+create index IF not exists idx_event_attendance_event on public.event_attendance using btree (event_id) TABLESPACE pg_default;
+
+create index IF not exists idx_event_attendance_student on public.event_attendance using btree (student_id) TABLESPACE pg_default;
+
+create trigger audit_ebams_event_attendance
+after INSERT
+or DELETE
+or
+update on event_attendance for EACH row
+execute FUNCTION audit_ebams_system_activity ('event_attendance');

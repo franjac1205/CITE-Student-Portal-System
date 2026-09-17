@@ -1,0 +1,10 @@
+create table public.fund_categories (
+  id uuid not null default extensions.gen_random_uuid (),
+  name text not null,
+  description text null,
+  is_active boolean not null default true,
+  created_at timestamp with time zone not null default now(),
+  assign_to_all boolean not null default false,
+  constraint fund_categories_pkey primary key (id),
+  constraint fund_categories_name_key unique (name)
+) TABLESPACE pg_default;

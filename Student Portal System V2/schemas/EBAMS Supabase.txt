@@ -1,0 +1,136 @@
+NEXT_PUBLIC_SUPABASE_URL=https://cuddkndauwewmicvolta.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_VGvYuvz47buTIvdBm1JL3Q_Gcta0t-y
+
+
+API KEY
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN1ZGRrbmRhdXdld21pY3ZvbHRhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxNzI4MDAsImV4cCI6MjEwMDc0ODgwMH0.21e-dEAz9tGNeAkLRq7Q5c55r2s3yN8SkXlhpBYSCF8
+
+
+SQL SCHEMA
+
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.academic_years (
+  id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  year_label character varying NOT NULL UNIQUE,
+  created_at timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT academic_years_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.events (
+  event_id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  event_name character varying NOT NULL,
+  event_date date NOT NULL,
+  required_time_in time without time zone NOT NULL,
+  required_time_out time without time zone NOT NULL,
+  date_created timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  attendance_locked smallint NOT NULL DEFAULT 0 CHECK (attendance_locked = ANY (ARRAY[0, 1])),
+  allow_time_in smallint NOT NULL DEFAULT 1 CHECK (allow_time_in = ANY (ARRAY[0, 1])),
+  allow_time_out smallint NOT NULL DEFAULT 0 CHECK (allow_time_out = ANY (ARRAY[0, 1])),
+  is_afternoon smallint NOT NULL DEFAULT 0 CHECK (is_afternoon = ANY (ARRAY[0, 1])),
+  is_active smallint NOT NULL DEFAULT 1 CHECK (is_active = ANY (ARRAY[0, 1])),
+  CONSTRAINT events_pkey PRIMARY KEY (event_id)
+);
+CREATE TABLE public.students (
+  id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  student_name character varying NOT NULL,
+  student_id character varying NOT NULL UNIQUE,
+  year_level smallint NOT NULL,
+  program character varying NOT NULL,
+  image_path character varying,
+  created_at timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  archived smallint NOT NULL DEFAULT 0 CHECK (archived = ANY (ARRAY[0, 1])),
+  academic_year character varying,
+  CONSTRAINT students_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.users (
+  user_id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  full_name character varying NOT NULL,
+  email character varying NOT NULL UNIQUE,
+  password_hash character varying NOT NULL,
+  role character varying NOT NULL DEFAULT 'admin'::character varying CHECK (role::text = ANY (ARRAY['dean'::character varying, 'admin'::character varying]::text[])),
+  created_at timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT users_pkey PRIMARY KEY (user_id)
+);
+CREATE TABLE public.event_required_groups (
+  id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  event_id integer NOT NULL,
+  program character varying NOT NULL,
+  year_level integer NOT NULL,
+  created_at timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT event_required_groups_pkey PRIMARY KEY (id),
+  CONSTRAINT event_required_groups_event_id_fkey FOREIGN KEY (event_id) REFERENCES public.events(event_id)
+);
+CREATE TABLE public.timing_conditions (
+  condition_id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  event_id integer NOT NULL,
+  condition_type character varying CHECK (condition_type::text = ANY (ARRAY['late'::character varying, 'early_in'::character varying, 'early_out'::character varying, 'absent'::character varying]::text[])),
+  min_minutes_offset integer NOT NULL,
+  max_minutes_offset integer NOT NULL,
+  fine_amount numeric DEFAULT 0.00,
+  community_service_hours numeric DEFAULT 0.0,
+  CONSTRAINT timing_conditions_pkey PRIMARY KEY (condition_id),
+  CONSTRAINT timing_conditions_event_id_fkey FOREIGN KEY (event_id) REFERENCES public.events(event_id)
+);
+CREATE TABLE public.lateness_conditions (
+  condition_id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  event_id integer NOT NULL,
+  min_minutes_late integer NOT NULL,
+  max_minutes_late integer NOT NULL,
+  fine_amount numeric DEFAULT 0.00,
+  community_service_hours numeric DEFAULT 0.0,
+  CONSTRAINT lateness_conditions_pkey PRIMARY KEY (condition_id),
+  CONSTRAINT lateness_conditions_event_id_fkey FOREIGN KEY (event_id) REFERENCES public.events(event_id)
+);
+CREATE TABLE public.attendance (
+  attendance_id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  event_id integer NOT NULL,
+  student_pk_id integer NOT NULL,
+  time_in timestamp without time zone,
+  time_out timestamp without time zone,
+  calculated_fine numeric DEFAULT 0.00,
+  fines_paid numeric DEFAULT 0.00,
+  calculated_cs_hours numeric DEFAULT 0.0,
+  cs_rendered_hours numeric DEFAULT 0.0,
+  is_excused smallint DEFAULT 0 CHECK (is_excused = ANY (ARRAY[0, 1])),
+  excused_reason character varying,
+  status character varying DEFAULT 'Absent'::character varying CHECK (status::text = ANY (ARRAY['Present'::character varying, 'Late'::character varying, 'Left Early'::character varying, 'Late and Left Early'::character varying, 'Absent'::character varying, 'Excused'::character varying]::text[])),
+  CONSTRAINT attendance_pkey PRIMARY KEY (attendance_id),
+  CONSTRAINT attendance_event_id_fkey FOREIGN KEY (event_id) REFERENCES public.events(event_id),
+  CONSTRAINT attendance_student_pk_id_fkey FOREIGN KEY (student_pk_id) REFERENCES public.students(id)
+);
+CREATE TABLE public.excuse_requests (
+  request_id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  attendance_id integer NOT NULL,
+  requested_by integer NOT NULL,
+  reviewed_by integer,
+  status character varying NOT NULL DEFAULT 'pending'::character varying CHECK (status::text = ANY (ARRAY['pending'::character varying, 'approved'::character varying, 'denied'::character varying]::text[])),
+  reason character varying,
+  decision_notes character varying,
+  created_at timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  decided_at timestamp without time zone,
+  supporting_document character varying,
+  approval_action character varying NOT NULL DEFAULT 'excused'::character varying CHECK (approval_action::text = ANY (ARRAY['excused'::character varying, 'violation'::character varying]::text[])),
+  excuse_letter character varying,
+  CONSTRAINT excuse_requests_pkey PRIMARY KEY (request_id),
+  CONSTRAINT excuse_requests_attendance_id_fkey FOREIGN KEY (attendance_id) REFERENCES public.attendance(attendance_id),
+  CONSTRAINT excuse_requests_requested_by_fkey FOREIGN KEY (requested_by) REFERENCES public.users(user_id),
+  CONSTRAINT excuse_requests_reviewed_by_fkey FOREIGN KEY (reviewed_by) REFERENCES public.users(user_id)
+);
+CREATE TABLE public.excuse_request_history (
+  id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  request_id integer NOT NULL,
+  action character varying NOT NULL CHECK (action::text = ANY (ARRAY['approved'::character varying, 'denied'::character varying]::text[])),
+  approval_action character varying NOT NULL CHECK (approval_action::text = ANY (ARRAY['excused'::character varying, 'violation'::character varying]::text[])),
+  decision_notes text,
+  acted_by integer NOT NULL,
+  acted_at timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT excuse_request_history_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.system_settings (
+  setting_key character varying NOT NULL,
+  setting_value text NOT NULL,
+  updated_at timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT system_settings_pkey PRIMARY KEY (setting_key)
+);
+

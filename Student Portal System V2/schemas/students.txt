@@ -1,0 +1,145 @@
+create table public.students (
+  id uuid not null default extensions.uuid_generate_v4 (),
+  student_rfid character varying(50) not null,
+  first_name character varying(100) not null,
+  middle_name character varying(100) null,
+  last_name character varying(100) not null,
+  suffix character varying(20) null,
+  gender character varying(20) not null,
+  birthdate date not null,
+  address text not null,
+  email character varying(255) not null,
+  phone_number character varying(20) not null,
+  program character varying(50) not null,
+  year_level integer not null,
+  section character varying(10) null,
+  course_id uuid not null,
+  guardian_name character varying(255) not null,
+  guardian_contact character varying(20) not null,
+  enrollment_status character varying(50) not null default 'Enrolled'::character varying,
+  academic_status character varying(50) not null default 'Good Standing'::character varying,
+  photo_url text null,
+  is_archived boolean null default false,
+  archived_at timestamp with time zone null,
+  archived_by uuid null,
+  created_at timestamp with time zone not null default timezone ('utc'::text, now()),
+  updated_at timestamp with time zone not null default timezone ('utc'::text, now()),
+  deleted_at timestamp with time zone null,
+  "student_IDnumber" character varying(11) null,
+  academic_year character varying(9) null,
+  constraint students_pkey primary key (id),
+  constraint students_email_key unique (email),
+  constraint students_student_number_key unique (student_rfid),
+  constraint students_course_id_fkey foreign KEY (course_id) references courses (id) on delete RESTRICT,
+  constraint fk_students_archived_by foreign KEY (archived_by) references users (id) on delete set null,
+  constraint students_year_level_check check (
+    (
+      (year_level >= 1)
+      and (year_level <= 5)
+    )
+  ),
+  constraint public_students_og_idnumber_format_check check (
+    (
+      ("student_IDnumber" is null)
+      or (
+        ("student_IDnumber")::text ~ '^[0-9]{3}-[0-9]{2}-[0-9]{4}$'::text
+      )
+    )
+  ),
+  constraint students_academic_status_check check (
+    (
+      (academic_status)::text = any (
+        (
+          array[
+            'Good Standing'::character varying,
+            'Probation'::character varying,
+            'Suspended'::character varying,
+            'Dismissed'::character varying
+          ]
+        )::text[]
+      )
+    )
+  ),
+  constraint students_enrollment_status_check check (
+    (
+      (enrollment_status)::text = any (
+        (
+          array[
+            'Enrolled'::character varying,
+            'Pending'::character varying,
+            'Withdrawn'::character varying,
+            'Graduated'::character varying,
+            'On Leave'::character varying
+          ]
+        )::text[]
+      )
+    )
+  ),
+  constraint students_gender_check check (
+    (
+      (gender)::text = any (
+        (
+          array[
+            'Male'::character varying,
+            'Female'::character varying,
+            'Other'::character varying
+          ]
+        )::text[]
+      )
+    )
+  )
+) TABLESPACE pg_default;
+
+create unique INDEX IF not exists public_students_og_idnumber_unique_idx on public.students using btree ("student_IDnumber") TABLESPACE pg_default
+where
+  ("student_IDnumber" is not null);
+
+create index IF not exists idx_students_live_name on public.students using btree (last_name, first_name) INCLUDE (program, year_level) TABLESPACE pg_default
+where
+  (
+    (deleted_at is null)
+    and (COALESCE(is_archived, false) = false)
+  );
+
+create index IF not exists idx_students_live_program_year_name on public.students using btree (
+  upper(btrim((program)::text)),
+  year_level,
+  last_name,
+  first_name
+) TABLESPACE pg_default
+where
+  (
+    (deleted_at is null)
+    and (COALESCE(is_archived, false) = false)
+  );
+
+create index IF not exists idx_students_student_number on public.students using btree (student_rfid) TABLESPACE pg_default;
+
+create index IF not exists idx_students_email on public.students using btree (email) TABLESPACE pg_default;
+
+create index IF not exists idx_students_program on public.students using btree (program) TABLESPACE pg_default;
+
+create index IF not exists idx_students_course_id on public.students using btree (course_id) TABLESPACE pg_default;
+
+create index IF not exists idx_students_year_level on public.students using btree (year_level) TABLESPACE pg_default;
+
+create index IF not exists idx_students_section on public.students using btree (section) TABLESPACE pg_default;
+
+create index IF not exists idx_students_enrollment_status on public.students using btree (enrollment_status) TABLESPACE pg_default;
+
+create index IF not exists idx_students_academic_status on public.students using btree (academic_status) TABLESPACE pg_default;
+
+create index IF not exists idx_students_is_archived on public.students using btree (is_archived) TABLESPACE pg_default;
+
+create index IF not exists idx_students_deleted_at on public.students using btree (deleted_at) TABLESPACE pg_default;
+
+create trigger audit_ebams_students
+after INSERT
+or DELETE
+or
+update on students for EACH row
+execute FUNCTION audit_ebams_system_activity ('student');
+
+create trigger update_students_updated_at BEFORE
+update on students for EACH row
+execute FUNCTION update_updated_at_column ();

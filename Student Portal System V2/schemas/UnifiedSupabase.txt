@@ -1,0 +1,480 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.events (
+  id uuid NOT NULL DEFAULT extensions.gen_random_uuid(),
+  title text NOT NULL,
+  event_date date NOT NULL,
+  required_time_in time without time zone,
+  required_time_out time without time zone,
+  late_threshold_minutes integer NOT NULL DEFAULT 15,
+  venue text,
+  is_afternoon boolean NOT NULL DEFAULT false,
+  allow_time_in boolean NOT NULL DEFAULT true,
+  allow_time_out boolean NOT NULL DEFAULT false,
+  attendance_locked boolean NOT NULL DEFAULT false,
+  is_active boolean NOT NULL DEFAULT true,
+  created_by uuid,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT events_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.event_required_groups (
+  id uuid NOT NULL DEFAULT extensions.gen_random_uuid(),
+  event_id uuid NOT NULL,
+  course_id uuid NOT NULL,
+  year_level smallint NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT event_required_groups_pkey PRIMARY KEY (id),
+  CONSTRAINT event_required_groups_event_id_fkey FOREIGN KEY (event_id) REFERENCES public.events(id)
+);
+CREATE TABLE public.timing_conditions (
+  id uuid NOT NULL DEFAULT extensions.gen_random_uuid(),
+  event_id uuid NOT NULL,
+  condition_type text NOT NULL CHECK (condition_type = ANY (ARRAY['late'::text, 'early_in'::text, 'early_out'::text, 'absent'::text])),
+  min_minutes_offset integer NOT NULL,
+  max_minutes_offset integer NOT NULL,
+  fine_amount numeric NOT NULL DEFAULT 0,
+  community_service_hours numeric NOT NULL DEFAULT 0,
+  CONSTRAINT timing_conditions_pkey PRIMARY KEY (id),
+  CONSTRAINT timing_conditions_event_id_fkey FOREIGN KEY (event_id) REFERENCES public.events(id)
+);
+CREATE TABLE public.excuse_requests (
+  id uuid NOT NULL DEFAULT extensions.gen_random_uuid(),
+  attendance_id uuid NOT NULL,
+  requested_by uuid NOT NULL,
+  reviewed_by uuid,
+  status text NOT NULL DEFAULT 'pending'::text CHECK (status = ANY (ARRAY['pending'::text, 'approved'::text, 'denied'::text])),
+  approval_action text NOT NULL DEFAULT 'excused'::text CHECK (approval_action = ANY (ARRAY['excused'::text, 'violation'::text])),
+  reason text,
+  decision_notes text,
+  supporting_document text,
+  excuse_letter text,
+  excuse_letter_data bytea,
+  excuse_letter_mime character varying(100),
+  excuse_letter_name text,
+  supporting_document_data bytea,
+  supporting_document_mime character varying(100),
+  supporting_document_name text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  decided_at timestamp with time zone,
+  CONSTRAINT excuse_requests_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.excuse_request_history (
+  id uuid NOT NULL DEFAULT extensions.gen_random_uuid(),
+  request_id uuid NOT NULL,
+  action text NOT NULL CHECK (action = ANY (ARRAY['approved'::text, 'denied'::text])),
+  approval_action text NOT NULL CHECK (approval_action = ANY (ARRAY['excused'::text, 'violation'::text])),
+  decision_notes text,
+  acted_by uuid NOT NULL,
+  acted_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT excuse_request_history_pkey PRIMARY KEY (id),
+  CONSTRAINT excuse_request_history_request_id_fkey FOREIGN KEY (request_id) REFERENCES public.excuse_requests(id)
+);
+CREATE TABLE public.fund_categories (
+  id uuid NOT NULL DEFAULT extensions.gen_random_uuid(),
+  name text NOT NULL UNIQUE,
+  description text,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT fund_categories_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.budgets (
+  id uuid NOT NULL DEFAULT extensions.gen_random_uuid(),
+  category_id uuid NOT NULL,
+  academic_year_id uuid NOT NULL,
+  semester text NOT NULL DEFAULT '1st'::text CHECK (semester = ANY (ARRAY['1st'::text, '2nd'::text, 'Summer'::text])),
+  allocated_amount numeric NOT NULL DEFAULT 0,
+  remarks text,
+  created_by uuid NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  school_year text,
+  CONSTRAINT budgets_pkey PRIMARY KEY (id),
+  CONSTRAINT budgets_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.fund_categories(id)
+);
+CREATE TABLE public.budget_requests (
+  id uuid NOT NULL DEFAULT extensions.gen_random_uuid(),
+  category_id uuid NOT NULL,
+  activity_name text NOT NULL,
+  purpose text,
+  amount_requested numeric NOT NULL,
+  activity_date date,
+  requested_by uuid NOT NULL,
+  status text NOT NULL DEFAULT 'pending'::text CHECK (status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text, 'liquidated'::text])),
+  approved_by uuid,
+  date_requested timestamp with time zone NOT NULL DEFAULT now(),
+  date_approved timestamp with time zone,
+  remarks text,
+  CONSTRAINT budget_requests_pkey PRIMARY KEY (id),
+  CONSTRAINT budget_requests_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.fund_categories(id)
+);
+CREATE TABLE public.transactions (
+  id uuid NOT NULL DEFAULT extensions.gen_random_uuid(),
+  category_id uuid NOT NULL,
+  budget_request_id uuid,
+  type text NOT NULL CHECK (type = ANY (ARRAY['income'::text, 'expense'::text])),
+  amount numeric NOT NULL,
+  description text NOT NULL,
+  reference_no text,
+  transaction_date date NOT NULL,
+  recorded_by uuid NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT transactions_pkey PRIMARY KEY (id),
+  CONSTRAINT transactions_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.fund_categories(id),
+  CONSTRAINT transactions_budget_request_id_fkey FOREIGN KEY (budget_request_id) REFERENCES public.budget_requests(id)
+);
+CREATE TABLE public.liquidations (
+  id uuid NOT NULL DEFAULT extensions.gen_random_uuid(),
+  budget_request_id uuid NOT NULL,
+  actual_amount_spent numeric NOT NULL,
+  proof_filename text,
+  remarks text,
+  submitted_by uuid NOT NULL,
+  date_submitted timestamp with time zone NOT NULL DEFAULT now(),
+  status text NOT NULL DEFAULT 'pending'::text CHECK (status = ANY (ARRAY['pending'::text, 'reviewed'::text])),
+  reviewed_by uuid,
+  date_reviewed timestamp with time zone,
+  proof_filenames text,
+  is_final boolean DEFAULT false,
+  rejection_reason text,
+  CONSTRAINT liquidations_pkey PRIMARY KEY (id),
+  CONSTRAINT liquidations_budget_request_id_fkey FOREIGN KEY (budget_request_id) REFERENCES public.budget_requests(id)
+);
+CREATE TABLE public.payments (
+  id uuid NOT NULL DEFAULT extensions.gen_random_uuid(),
+  student_id uuid NOT NULL,
+  attendance_id uuid,
+  event_id uuid,
+  title text NOT NULL,
+  type text NOT NULL CHECK (type = ANY (ARRAY['Fee'::text, 'Fine'::text, 'Contribution'::text, 'Annual Fee'::text])),
+  amount numeric NOT NULL DEFAULT 0,
+  status text NOT NULL DEFAULT 'pending'::text CHECK (status = ANY (ARRAY['pending'::text, 'partial'::text, 'paid'::text])),
+  school_year text,
+  or_number text,
+  date_paid timestamp with time zone,
+  recorded_by uuid,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT payments_pkey PRIMARY KEY (id),
+  CONSTRAINT payments_event_id_fkey FOREIGN KEY (event_id) REFERENCES public.events(id)
+);
+CREATE TABLE public.weekly_dues (
+  id uuid NOT NULL DEFAULT extensions.gen_random_uuid(),
+  course_id uuid NOT NULL,
+  year_level smallint NOT NULL,
+  section text NOT NULL,
+  week_start date NOT NULL,
+  week_end date NOT NULL,
+  total_students integer NOT NULL DEFAULT 0,
+  amount_per_student numeric NOT NULL DEFAULT 10.00,
+  amount_expected numeric NOT NULL DEFAULT 0,
+  amount_collected numeric NOT NULL DEFAULT 0,
+  representative_name text NOT NULL,
+  date_remitted timestamp with time zone DEFAULT now(),
+  recorded_by uuid NOT NULL,
+  remarks text,
+  course text,
+  CONSTRAINT weekly_dues_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.fine_settings (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  singleton boolean NOT NULL DEFAULT true UNIQUE CHECK (singleton),
+  late numeric NOT NULL DEFAULT 100,
+  absent numeric NOT NULL DEFAULT 200,
+  wrong_attire numeric NOT NULL DEFAULT 50,
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT fine_settings_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.categories (
+  id uuid NOT NULL DEFAULT extensions.gen_random_uuid(),
+  name text NOT NULL,
+  description text,
+  status text NOT NULL DEFAULT 'active'::text CHECK (status = ANY (ARRAY['active'::text, 'archived'::text, 'deleted'::text])),
+  assign_to_all boolean NOT NULL DEFAULT false,
+  archived_at timestamp with time zone,
+  archived_by uuid,
+  deleted_at timestamp with time zone,
+  deleted_by uuid,
+  deleted_approved_by uuid,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT categories_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.category_students (
+  id uuid NOT NULL DEFAULT extensions.gen_random_uuid(),
+  category_id uuid NOT NULL,
+  student_id uuid NOT NULL,
+  assigned_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT category_students_pkey PRIMARY KEY (id),
+  CONSTRAINT category_students_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.categories(id)
+);
+CREATE TABLE public.annual_fees (
+  id uuid NOT NULL DEFAULT extensions.gen_random_uuid(),
+  student_id uuid NOT NULL,
+  school_year text NOT NULL,
+  amount numeric NOT NULL DEFAULT 100.00,
+  status text NOT NULL DEFAULT 'unpaid'::text CHECK (status = ANY (ARRAY['unpaid'::text, 'paid'::text])),
+  date_paid timestamp with time zone,
+  or_number text,
+  recorded_by uuid,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT annual_fees_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.violations (
+  id uuid NOT NULL DEFAULT extensions.gen_random_uuid(),
+  ebams_attendance_id integer,
+  ebams_event_id integer,
+  event_name text NOT NULL,
+  event_date date NOT NULL,
+  student_id uuid NOT NULL,
+  status text NOT NULL CHECK (status = ANY (ARRAY['Late'::text, 'Left Early'::text, 'Late and Left Early'::text, 'Absent'::text])),
+  is_excused boolean NOT NULL DEFAULT false,
+  excused_reason text,
+  fine_amount numeric NOT NULL DEFAULT 0,
+  fine_paid_amount numeric NOT NULL DEFAULT 0,
+  fine_status text NOT NULL DEFAULT 'unpaid'::text CHECK (fine_status = ANY (ARRAY['unpaid'::text, 'partial'::text, 'paid'::text, 'waived'::text])),
+  fine_date_settled timestamp with time zone,
+  fine_settled_by uuid,
+  service_hours_required numeric NOT NULL DEFAULT 0,
+  service_hours_rendered numeric NOT NULL DEFAULT 0,
+  service_status text NOT NULL DEFAULT 'pending'::text CHECK (service_status = ANY (ARRAY['pending'::text, 'partial'::text, 'served'::text, 'waived'::text])),
+  service_date_settled timestamp with time zone,
+  service_settled_by uuid,
+  source text NOT NULL DEFAULT 'attendance'::text CHECK (source = ANY (ARRAY['attendance'::text, 'event'::text, 'other'::text])),
+  recorded_by uuid,
+  remarks text,
+  synced_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT violations_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.academic_years (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  year_start integer NOT NULL,
+  year_end integer NOT NULL,
+  semester character varying NOT NULL,
+  is_current boolean DEFAULT false,
+  is_active boolean DEFAULT true,
+  start_date date,
+  end_date date,
+  created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  deleted_at timestamp with time zone,
+  CONSTRAINT academic_years_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.courses (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  name character varying NOT NULL,
+  code character varying NOT NULL UNIQUE,
+  description text,
+  duration_years integer,
+  total_units integer DEFAULT 0,
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  deleted_at timestamp with time zone,
+  CONSTRAINT courses_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.roles (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  name character varying NOT NULL UNIQUE,
+  description text,
+  is_system_role boolean DEFAULT false,
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  deleted_at timestamp with time zone,
+  CONSTRAINT roles_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.users (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  email character varying NOT NULL UNIQUE,
+  password_hash character varying NOT NULL,
+  first_name character varying,
+  last_name character varying,
+  role_id uuid NOT NULL,
+  is_active boolean DEFAULT true,
+  is_locked boolean DEFAULT false,
+  last_login timestamp with time zone,
+  last_logout timestamp with time zone,
+  password_changed_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  failed_login_attempts integer DEFAULT 0,
+  locked_until timestamp with time zone,
+  created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  deleted_at timestamp with time zone,
+  CONSTRAINT users_pkey PRIMARY KEY (id),
+  CONSTRAINT users_role_id_fkey FOREIGN KEY (role_id) REFERENCES public.roles(id)
+);
+CREATE TABLE public.permissions (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  name character varying NOT NULL UNIQUE,
+  description text,
+  module character varying NOT NULL,
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT permissions_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.role_permissions (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  role_id uuid NOT NULL,
+  permission_id uuid NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT role_permissions_pkey PRIMARY KEY (id),
+  CONSTRAINT role_permissions_role_id_fkey FOREIGN KEY (role_id) REFERENCES public.roles(id),
+  CONSTRAINT role_permissions_permission_id_fkey FOREIGN KEY (permission_id) REFERENCES public.permissions(id)
+);
+CREATE TABLE public.students (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  student_number character varying NOT NULL UNIQUE CHECK (student_number::text ~ '^[0-9]{10}$'::text),
+  first_name character varying NOT NULL,
+  middle_name character varying,
+  last_name character varying NOT NULL,
+  suffix character varying,
+  gender character varying NOT NULL CHECK (gender::text = ANY (ARRAY['Male'::character varying, 'Female'::character varying, 'Other'::character varying]::text[])),
+  birthdate date NOT NULL,
+  address text NOT NULL,
+  email character varying NOT NULL UNIQUE,
+  phone_number character varying NOT NULL,
+  program character varying NOT NULL,
+  year_level integer NOT NULL CHECK (year_level >= 1 AND year_level <= 5),
+  section character varying,
+  course_id uuid NOT NULL,
+  guardian_name character varying NOT NULL,
+  guardian_contact character varying NOT NULL,
+  enrollment_status character varying NOT NULL DEFAULT 'Enrolled'::character varying CHECK (enrollment_status::text = ANY (ARRAY['Enrolled'::character varying, 'Pending'::character varying, 'Withdrawn'::character varying, 'Graduated'::character varying, 'On Leave'::character varying]::text[])),
+  academic_status character varying NOT NULL DEFAULT 'Good Standing'::character varying CHECK (academic_status::text = ANY (ARRAY['Good Standing'::character varying, 'Probation'::character varying, 'Suspended'::character varying, 'Dismissed'::character varying]::text[])),
+  photo_url text,
+  is_archived boolean DEFAULT false,
+  archived_at timestamp with time zone,
+  archived_by uuid,
+  created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  deleted_at timestamp with time zone,
+  CONSTRAINT students_pkey PRIMARY KEY (id),
+  CONSTRAINT students_course_id_fkey FOREIGN KEY (course_id) REFERENCES public.courses(id),
+  CONSTRAINT fk_students_archived_by FOREIGN KEY (archived_by) REFERENCES public.users(id)
+);
+CREATE TABLE public.audit_logs (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid,
+  user_email character varying,
+  user_role character varying,
+  action character varying NOT NULL,
+  module character varying NOT NULL,
+  resource_type character varying,
+  resource_id uuid,
+  old_values jsonb,
+  new_values jsonb,
+  ip_address character varying,
+  user_agent text,
+  status character varying NOT NULL DEFAULT 'success'::character varying CHECK (status::text = ANY (ARRAY['success'::character varying, 'failed'::character varying, 'error'::character varying]::text[])),
+  error_message text,
+  created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT audit_logs_pkey PRIMARY KEY (id),
+  CONSTRAINT fk_audit_logs_user_id FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.notifications (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL,
+  title character varying NOT NULL,
+  message text NOT NULL,
+  type character varying NOT NULL DEFAULT 'info'::character varying CHECK (type::text = ANY (ARRAY['info'::character varying, 'success'::character varying, 'warning'::character varying, 'error'::character varying]::text[])),
+  is_read boolean DEFAULT false,
+  read_at timestamp with time zone,
+  created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT notifications_pkey PRIMARY KEY (id),
+  CONSTRAINT fk_notifications_user_id FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.settings (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  key character varying NOT NULL UNIQUE,
+  value text,
+  type character varying NOT NULL DEFAULT 'string'::character varying CHECK (type::text = ANY (ARRAY['string'::character varying, 'number'::character varying, 'boolean'::character varying, 'json'::character varying]::text[])),
+  description text,
+  is_public boolean DEFAULT false,
+  created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT settings_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.projects (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  title character varying NOT NULL,
+  description text,
+  status character varying NOT NULL DEFAULT 'Active'::character varying CHECK (status::text = ANY (ARRAY['Active'::character varying, 'Completed'::character varying, 'On Hold'::character varying, 'Cancelled'::character varying]::text[])),
+  start_date date,
+  end_date date,
+  budget numeric DEFAULT 0.00,
+  is_featured boolean DEFAULT false,
+  created_by uuid NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  deleted_at timestamp with time zone,
+  CONSTRAINT projects_pkey PRIMARY KEY (id),
+  CONSTRAINT projects_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id)
+);
+CREATE TABLE public.announcements (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  title character varying NOT NULL,
+  message text NOT NULL,
+  type character varying NOT NULL DEFAULT 'info'::character varying CHECK (type::text = ANY (ARRAY['info'::character varying, 'success'::character varying, 'warning'::character varying, 'error'::character varying]::text[])),
+  priority character varying NOT NULL DEFAULT 'normal'::character varying CHECK (priority::text = ANY (ARRAY['low'::character varying, 'normal'::character varying, 'high'::character varying, 'urgent'::character varying]::text[])),
+  is_pinned boolean DEFAULT false,
+  publish_date timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  expiry_date timestamp with time zone,
+  created_by uuid NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  deleted_at timestamp with time zone,
+  CONSTRAINT announcements_pkey PRIMARY KEY (id),
+  CONSTRAINT announcements_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id)
+);
+CREATE TABLE public.collections (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  transaction_type character varying NOT NULL CHECK (transaction_type::text = ANY (ARRAY['income'::character varying, 'expense'::character varying]::text[])),
+  category character varying NOT NULL,
+  amount numeric NOT NULL,
+  description text NOT NULL,
+  reference_number character varying,
+  transaction_date date NOT NULL,
+  recorded_by uuid NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  deleted_at timestamp with time zone,
+  CONSTRAINT collections_pkey PRIMARY KEY (id),
+  CONSTRAINT collections_recorded_by_fkey FOREIGN KEY (recorded_by) REFERENCES public.users(id)
+);
+CREATE TABLE public.attendance (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  student_id uuid NOT NULL,
+  academic_year_id uuid NOT NULL,
+  date date NOT NULL,
+  status character varying NOT NULL CHECK (status::text = ANY (ARRAY['Present'::character varying, 'Absent'::character varying, 'Late'::character varying, 'Excused'::character varying]::text[])),
+  remarks text,
+  recorded_by uuid NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  deleted_at timestamp with time zone,
+  CONSTRAINT attendance_pkey PRIMARY KEY (id),
+  CONSTRAINT attendance_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.students(id),
+  CONSTRAINT attendance_academic_year_id_fkey FOREIGN KEY (academic_year_id) REFERENCES public.academic_years(id),
+  CONSTRAINT attendance_recorded_by_fkey FOREIGN KEY (recorded_by) REFERENCES public.users(id)
+);
+CREATE TABLE public.system_logs (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  level character varying NOT NULL CHECK (level::text = ANY (ARRAY['info'::character varying, 'warning'::character varying, 'error'::character varying, 'critical'::character varying]::text[])),
+  message text NOT NULL,
+  module character varying,
+  context jsonb,
+  ip_address character varying,
+  user_agent text,
+  created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT system_logs_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.ebams_legacy_student_links (
+  legacy_student_id integer NOT NULL,
+  sis_student_id uuid NOT NULL UNIQUE,
+  legacy_student_number character varying NOT NULL UNIQUE,
+  linked_at timestamp with time zone NOT NULL DEFAULT now(),
+  source text NOT NULL DEFAULT 'ebams_legacy_data.students'::text,
+  CONSTRAINT ebams_legacy_student_links_pkey PRIMARY KEY (legacy_student_id),
+  CONSTRAINT ebams_legacy_student_links_legacy_student_id_fkey FOREIGN KEY (legacy_student_id) REFERENCES ebams_legacy_data.students(id),
+  CONSTRAINT ebams_legacy_student_links_sis_student_id_fkey FOREIGN KEY (sis_student_id) REFERENCES public.students(id)
+);

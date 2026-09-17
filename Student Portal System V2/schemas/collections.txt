@@ -1,0 +1,41 @@
+create table public.collections (
+  id uuid not null default extensions.uuid_generate_v4 (),
+  transaction_type character varying(50) not null,
+  category character varying(100) not null,
+  amount numeric(12, 2) not null,
+  description text not null,
+  reference_number character varying(100) null,
+  transaction_date date not null,
+  recorded_by uuid not null,
+  created_at timestamp with time zone not null default timezone ('utc'::text, now()),
+  updated_at timestamp with time zone not null default timezone ('utc'::text, now()),
+  deleted_at timestamp with time zone null,
+  constraint collections_pkey primary key (id),
+  constraint collections_recorded_by_fkey foreign KEY (recorded_by) references users (id) on delete RESTRICT,
+  constraint collections_transaction_type_check check (
+    (
+      (transaction_type)::text = any (
+        (
+          array[
+            'income'::character varying,
+            'expense'::character varying
+          ]
+        )::text[]
+      )
+    )
+  )
+) TABLESPACE pg_default;
+
+create index IF not exists idx_collections_transaction_type on public.collections using btree (transaction_type) TABLESPACE pg_default;
+
+create index IF not exists idx_collections_category on public.collections using btree (category) TABLESPACE pg_default;
+
+create index IF not exists idx_collections_transaction_date on public.collections using btree (transaction_date) TABLESPACE pg_default;
+
+create index IF not exists idx_collections_recorded_by on public.collections using btree (recorded_by) TABLESPACE pg_default;
+
+create index IF not exists idx_collections_deleted_at on public.collections using btree (deleted_at) TABLESPACE pg_default;
+
+create trigger update_collections_updated_at BEFORE
+update on collections for EACH row
+execute FUNCTION update_updated_at_column ();

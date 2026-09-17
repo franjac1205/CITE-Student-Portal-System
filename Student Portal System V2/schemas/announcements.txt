@@ -1,0 +1,61 @@
+create table public.announcements (
+  id uuid not null default extensions.uuid_generate_v4 (),
+  title character varying(255) not null,
+  message text not null,
+  type character varying(50) not null default 'info'::character varying,
+  priority character varying(50) not null default 'normal'::character varying,
+  is_pinned boolean null default false,
+  publish_date timestamp with time zone not null default timezone ('utc'::text, now()),
+  expiry_date timestamp with time zone null,
+  created_by uuid not null,
+  created_at timestamp with time zone not null default timezone ('utc'::text, now()),
+  updated_at timestamp with time zone not null default timezone ('utc'::text, now()),
+  deleted_at timestamp with time zone null,
+  image_url text null,
+  constraint announcements_pkey primary key (id),
+  constraint announcements_created_by_fkey foreign KEY (created_by) references users (id) on delete RESTRICT,
+  constraint announcements_priority_check check (
+    (
+      (priority)::text = any (
+        (
+          array[
+            'low'::character varying,
+            'normal'::character varying,
+            'high'::character varying,
+            'urgent'::character varying
+          ]
+        )::text[]
+      )
+    )
+  ),
+  constraint announcements_type_check check (
+    (
+      (type)::text = any (
+        (
+          array[
+            'info'::character varying,
+            'success'::character varying,
+            'warning'::character varying,
+            'error'::character varying
+          ]
+        )::text[]
+      )
+    )
+  )
+) TABLESPACE pg_default;
+
+create index IF not exists idx_announcements_type on public.announcements using btree (type) TABLESPACE pg_default;
+
+create index IF not exists idx_announcements_priority on public.announcements using btree (priority) TABLESPACE pg_default;
+
+create index IF not exists idx_announcements_is_pinned on public.announcements using btree (is_pinned) TABLESPACE pg_default;
+
+create index IF not exists idx_announcements_publish_date on public.announcements using btree (publish_date) TABLESPACE pg_default;
+
+create index IF not exists idx_announcements_created_by on public.announcements using btree (created_by) TABLESPACE pg_default;
+
+create index IF not exists idx_announcements_deleted_at on public.announcements using btree (deleted_at) TABLESPACE pg_default;
+
+create trigger update_announcements_updated_at BEFORE
+update on announcements for EACH row
+execute FUNCTION update_updated_at_column ();

@@ -1,0 +1,22 @@
+create table public.roles (
+  id uuid not null default extensions.uuid_generate_v4 (),
+  name character varying(100) not null,
+  description text null,
+  is_system_role boolean null default false,
+  is_active boolean null default true,
+  created_at timestamp with time zone not null default timezone ('utc'::text, now()),
+  updated_at timestamp with time zone not null default timezone ('utc'::text, now()),
+  deleted_at timestamp with time zone null,
+  constraint roles_pkey primary key (id),
+  constraint roles_name_key unique (name)
+) TABLESPACE pg_default;
+
+create index IF not exists idx_roles_name on public.roles using btree (name) TABLESPACE pg_default;
+
+create index IF not exists idx_roles_is_active on public.roles using btree (is_active) TABLESPACE pg_default;
+
+create index IF not exists idx_roles_deleted_at on public.roles using btree (deleted_at) TABLESPACE pg_default;
+
+create trigger update_roles_updated_at BEFORE
+update on roles for EACH row
+execute FUNCTION update_updated_at_column ();

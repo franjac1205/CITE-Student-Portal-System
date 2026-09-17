@@ -1,0 +1,29 @@
+create table public.transactions (
+  id uuid not null default extensions.gen_random_uuid (),
+  category_id uuid not null,
+  budget_request_id uuid null,
+  type text not null,
+  amount numeric(12, 2) not null,
+  description text not null,
+  reference_no text null,
+  transaction_date date not null,
+  recorded_by uuid not null,
+  created_at timestamp with time zone not null default now(),
+  academic_year_id uuid null,
+  constraint transactions_pkey primary key (id),
+  constraint transactions_budget_request_id_fkey foreign KEY (budget_request_id) references budget_requests (id) on delete set null,
+  constraint transactions_category_id_fkey foreign KEY (category_id) references fund_categories (id) on delete RESTRICT,
+  constraint transactions_type_check check (
+    (
+      type = any (array['income'::text, 'expense'::text])
+    )
+  )
+) TABLESPACE pg_default;
+
+create index IF not exists idx_transactions_category on public.transactions using btree (category_id) TABLESPACE pg_default;
+
+create index IF not exists idx_transactions_type_date on public.transactions using btree (type, transaction_date) TABLESPACE pg_default;
+
+create index IF not exists idx_transactions_budget_request on public.transactions using btree (budget_request_id) TABLESPACE pg_default;
+
+create index IF not exists idx_transactions_academic_year on public.transactions using btree (academic_year_id) TABLESPACE pg_default;

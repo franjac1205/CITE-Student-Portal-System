@@ -1,0 +1,28 @@
+create table public.liquidations (
+  id uuid not null default extensions.gen_random_uuid (),
+  budget_request_id uuid not null,
+  actual_amount_spent numeric(12, 2) not null,
+  proof_filename text null,
+  remarks text null,
+  submitted_by uuid not null,
+  date_submitted timestamp with time zone not null default now(),
+  status text not null default 'pending'::text,
+  reviewed_by uuid null,
+  date_reviewed timestamp with time zone null,
+  proof_filenames text null,
+  is_final boolean null default false,
+  rejection_reason text null,
+  constraint liquidations_pkey primary key (id),
+  constraint liquidations_budget_request_id_fkey foreign KEY (budget_request_id) references budget_requests (id) on delete CASCADE,
+  constraint liquidations_status_check check (
+    (
+      status = any (array['pending'::text, 'reviewed'::text])
+    )
+  )
+) TABLESPACE pg_default;
+
+create index IF not exists idx_liquidations_budget_request on public.liquidations using btree (budget_request_id) TABLESPACE pg_default;
+
+create index IF not exists idx_liquidations_status on public.liquidations using btree (status) TABLESPACE pg_default
+where
+  (status = 'pending'::text);
