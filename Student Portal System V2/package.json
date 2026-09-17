@@ -1,12 +1,11 @@
 {
-  "name": "@figma/my-make-file",
-  "private": true,
+  "name": "my-make-file",
   "version": "0.0.1",
-  "type": "module",
-  "scripts": {
-    "build": "vite build",
-    "dev": "vite"
-  },
+  "allowScripts": {
+    "@tailwindcss/oxide": true,
+    "esbuild": true
+  }
+}
   "dependencies": {
     "@emotion/react": "11.14.0",
     "@emotion/styled": "11.14.1",
@@ -89,4 +88,5 @@
       "vite": "6.3.5"
     }
   }
+  
 }
